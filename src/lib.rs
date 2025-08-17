@@ -1,9 +1,3 @@
-
-
-// Constants
-const MAX_URLS: usize = 5;
-const NUM_THREADS: usize = 5;
-
 #[cfg(test)]
 mod tests {
     use crossbeam::channel;
@@ -21,6 +15,10 @@ mod tests {
     use std::io::prelude::*;
     use std::usize::MAX;
     use super::*;
+
+    // Constants
+    const MAX_URLS: usize = 5;
+    const NUM_THREADS: usize = 5;
 
     /// Sends a GET request to the given URL and writes the URL to a file
     /// 
@@ -128,18 +126,30 @@ mod tests {
     
     #[test]
     fn attempt() {
-        let mut input = String::new();
-        let mut stdin = std::io::stdin();
-        let mut stdout = std::io::stdout();
+        let input = String::from("a");
 
-        print!("CSS selector: ");
-        stdout.flush().unwrap();
-        
-        stdin.read_line(&mut input).unwrap();
+        let html = r#"
+            <!DOCTYPE html>
+            <meta charset="utf-8">
+            <html>
+                <head>
+                    <title>Hello, world!</title>
+                </head>
+                <body>
+                    <h1 class="foo">Hello, <i>world!</i></h1>
+                    <a href="https://www.w3schools.com/">Visit W3Schools.com!</a>
+                    <a href="https://google.com">Google</a>
+                    <div>
+                        <a href="https://neetcode.com">Neetcode</a>
+                    </div>
+                </body>
+            </html>
+        "#;
+        let document = Html::parse_document(html);
         let selector = Selector::parse(&input).unwrap();
-
-        println!("Html selector: ");
-        stdin.read_to_string(&mut input).unwrap();
-        let document = Html::parse_document(&input);
+        for node in document.select(&selector) {
+            let formatted = format!("Value: {}", node.attr("href").unwrap());
+            println!("\nBEGIN TEST\n{}\nEND TEST\n", formatted);
+        }
     }
 }
