@@ -1,3 +1,4 @@
+use little_crawl::*;
 use crossbeam::channel;
 use reqwest::blocking;
 use scraper::{Html, Selector};
@@ -5,9 +6,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
+use std::ops::Deref;
 
 // Constants
-const MAX_URLS: usize = 5;
+const CHANNEL_CAP: usize = 100;
+const MAX_URLS: usize = 10;
 const NUM_THREADS: usize = 5;
 
 fn main() {
@@ -19,7 +22,7 @@ fn main() {
 
     // Prepare thread handlers (for joining), channel, and shared visited pool
     let mut handlers = vec![];
-    let (s, r) = channel::bounded::<String>(MAX_URLS);
+    let (s, r) = channel::bounded::<String>(CHANNEL_CAP);
     let visited: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
 
     // Create threads.
@@ -32,6 +35,13 @@ fn main() {
         let handler = thread::spawn(move || {
             for url in r.iter() {
                 let mut visited = visited_t.lock().unwrap();
+                
+                println!("{}", url);
+                // If number of visited URLs exceeds limit, stop fetching them.
+                if visited.len() >= MAX_URLS {
+                    break;     
+                }
+
                 if visited.contains(&url) {
                     continue;
                 }
@@ -56,29 +66,15 @@ fn main() {
 
     drop(s); // Close the channel
 
+    // Let the threads finish before exiting program
     for handler in handlers {
-        // Let the threads finish before exiting program
         handler.join().unwrap();
     }
-}
 
-/// Takes a url, acquires links from it, and returns a vector of URLs
-/// to enqueue onto the channel, wrapped in a result.
-///
-/// url: the url to fetch links from
-fn fetch_links(url: &str) -> reqwest::Result<Vec<String>> {
-    let body = blocking::get(url)?.text()?; // Gets html of each page
-    println!("Fetched: {}\n\n{}\n\n\n\n", url, body);
-
-    let mut urls: Vec<String> = vec![];
-
-    // Getting links
-    let document = Html::parse_document(&body);
-    let selector = Selector::parse("a").unwrap();
-    for node in document.select(&selector) {
-        let url = node.attr("href").unwrap(); // Link inside `href` attr
-        urls.push(url.to_string());
+    // Display all the URLs
+    for url in visited.lock().unwrap().deref() {
+        println!("{}", url);
     }
-
-    Ok(urls)
 }
+
+
