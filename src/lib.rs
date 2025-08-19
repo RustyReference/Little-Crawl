@@ -26,7 +26,6 @@ fn get_full_url<'a>(base: &'a str, rel: &'a str) -> String {
 /// base: the url to fetch links from
 pub fn fetch_links(base: &str) -> reqwest::Result<Vec<String>> {
     let body = blocking::get(base)?.text()?; // Gets html of each page
-
     let mut urls: Vec<String> = vec![];
 
     // Getting links
@@ -34,11 +33,18 @@ pub fn fetch_links(base: &str) -> reqwest::Result<Vec<String>> {
     let selector = Selector::parse("a").unwrap();
     for node in document.select(&selector) {
         let rel = node.attr("href").unwrap(); // Link inside `href` attr
+                                            
+        // Make possible relative Url into absolute.
+        let full_url= if Url::parse(rel)
+            .unwrap()
+            .cannot_be_a_base() 
+        {
+            get_full_url(base, rel)
+        } else {
+            rel.to_string()
+        };
 
-        //TODO: implement joining for relative urls
-        let full_url = get_full_url(base, rel);
-
-        urls.push(full_url.to_string());
+        urls.push(full_url);
     }
 
     Ok(urls)
