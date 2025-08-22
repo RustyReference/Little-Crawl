@@ -1,6 +1,53 @@
+use crossbeam::channel::{Receiver, Sender};
 use reqwest::blocking;
 use reqwest::Url;
 use scraper::{Html, Selector};
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
+
+// Constants
+const MAX_URLS: usize = 100;
+
+/// Creates a thread to explore a webpage for its urls
+///
+/// s: the sender that handles sending data into the channel
+/// r: the receiver that handles receiving data from the channel
+/// visited_t: the thread-safe shared reference for a HashSet which keeps
+///     track of all visited URLs.
+pub fn spawn_thread(
+    s: Sender<String>,
+    r: Receiver<String>,
+    visited_t: Arc<Mutex<HashSet<String>>>,
+) -> JoinHandle<()> {
+    thread::spawn(move || {
+        for url in r.iter() {
+            {
+                let visited = visited_t.lock().unwrap();
+
+                println!("{}", url);
+
+                // If number of visited URLs exceeds limit, stop fetching them.
+                if visited.len() >= MAX_URLS {
+                    break;
+                }
+
+                if visited.contains(&url) {
+                    continue;
+                }
+            }
+
+            // Fetch new links from the page at URL
+            let new_links = fetch_links(&url).unwrap();
+            for link in new_links {
+                s.send(link).unwrap();
+            }
+
+            let mut visited = visited_t.lock().unwrap();
+            (*visited).insert(url);
+        }
+    })
+}
 
 /// Takes a relative URL and returns a full, absolute URL from it
 ///
@@ -11,10 +58,14 @@ use scraper::{Html, Selector};
 /// RETURNS: A combination of `base` and `rel` to form an absolute url.
 fn get_full_url<'a>(base: &'a str, rel: &'a str) -> String {
     let u_base = Url::parse(base).unwrap();
+    let rel = match rel.get(1..) {
+        Some(url) => url,
+        None => ""
+    };
 
     Url::options()
         .base_url(Some(&u_base))
-        .parse(&rel[1..])
+        .parse(rel)
         .unwrap()
         .as_str()
         .to_string()
@@ -25,23 +76,28 @@ fn get_full_url<'a>(base: &'a str, rel: &'a str) -> String {
 ///
 /// base: the url to fetch links from
 pub fn fetch_links(base: &str) -> reqwest::Result<Vec<String>> {
-    let body = blocking::get(base)?.text()?; // Gets html of each page
+    let body = blocking::get(base)?.text()?; // Gets html of the page
     let mut urls: Vec<String> = vec![];
 
     // Getting links
     let document = Html::parse_document(&body);
     let selector = Selector::parse("a").unwrap();
     for node in document.select(&selector) {
-        let rel = node.attr("href").unwrap(); // Link inside `href` attr
-                                            
+        let rel = match node.attr("href") { // Link inside `href` attr
+            Some(url) => url,
+            None => continue,
+        };
+
         // Make possible relative Url into absolute.
-        let full_url= if Url::parse(rel)
-            .unwrap()
-            .cannot_be_a_base() 
-        {
-            get_full_url(base, rel)
-        } else {
-            rel.to_string()
+        let full_url = match Url::parse(rel) {
+            Ok(inner_url) => inner_url.as_str().to_string(),
+            Err(error) => {
+                if error == url::ParseError::RelativeUrlWithoutBase {
+                    get_full_url(base, rel)
+                } else {
+                    panic!("Error fetching links: {}", error);
+                }
+            }
         };
 
         urls.push(full_url);

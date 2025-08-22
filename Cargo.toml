@@ -9,3 +9,4 @@ edition = "2021"
 reqwest = { version = "0.12", features = ["blocking"] }
 scraper = "0.18"
 crossbeam = "0.8.4" # for channels
+url = "2.5.4"

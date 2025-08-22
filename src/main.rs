@@ -1,28 +1,22 @@
-use little_crawl::*;
 use crossbeam::channel;
-use reqwest::blocking;
-use scraper::{Html, Selector};
+use little_crawl::*;
 use std::collections::HashSet;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::thread;
 use std::ops::Deref;
+use std::sync::{Arc, Mutex};
 
 // Constants
-const CHANNEL_CAP: usize = 100;
-const MAX_URLS: usize = 10;
+const CHANNEL_CAP: usize = 10000;
 const NUM_THREADS: usize = 5;
 
 fn main() {
     let urls = vec![
         "https://www.rust-lang.org",
         "https://www.wikipedia.org",
-        "https://www.wikipedia.org",
     ];
 
     // Prepare thread handlers (for joining), channel, and shared visited pool
     let mut handlers = vec![];
-    let (s, r) = channel::bounded::<String>(CHANNEL_CAP);
+    let (s, r) = channel::unbounded::<String>();
     let visited: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
 
     // Create threads.
@@ -32,29 +26,7 @@ fn main() {
         let visited_t = Arc::clone(&visited);
 
         // Spawn thread
-        let handler = thread::spawn(move || {
-            for url in r.iter() {
-                let mut visited = visited_t.lock().unwrap();
-                
-                println!("{}", url);
-                // If number of visited URLs exceeds limit, stop fetching them.
-                if visited.len() >= MAX_URLS {
-                    break;     
-                }
-
-                if visited.contains(&url) {
-                    continue;
-                }
-
-                // Fetch new links from the page at URL
-                let new_links = fetch_links(&url).unwrap();
-                for link in new_links {
-                    s.send(link).unwrap();
-                }
-
-                (*visited).insert(url);
-            }
-        });
+        let handler = spawn_thread(s, r, visited_t);
 
         handlers.push(handler);
     }
@@ -76,5 +48,3 @@ fn main() {
         println!("{}", url);
     }
 }
-
-
