@@ -16,7 +16,7 @@ fn main() {
 
     // Prepare thread handlers (for joining), channel, and shared visited pool
     let mut handlers = vec![];
-    let (s, r) = channel::unbounded::<String>();
+    let (s, r) = channel::unbounded::<(String, usize)>();
     let visited: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
 
     // Create threads.
@@ -33,7 +33,7 @@ fn main() {
 
     // Send seed set of URLs to channel
     for url in urls {
-        s.send(url.to_string()).unwrap();
+        s.send((url.to_string(), 0)).unwrap();
     }
 
     drop(s); // Close the channel

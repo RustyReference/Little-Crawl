@@ -8,46 +8,7 @@ use std::thread::{self, JoinHandle};
 
 // Constants
 const MAX_URLS: usize = 100;
-
-/// Creates a thread to explore a webpage for its urls
-///
-/// s: the sender that handles sending data into the channel
-/// r: the receiver that handles receiving data from the channel
-/// visited_t: the thread-safe shared reference for a HashSet which keeps
-///     track of all visited URLs.
-pub fn spawn_thread(
-    s: Sender<String>,
-    r: Receiver<String>,
-    visited_t: Arc<Mutex<HashSet<String>>>,
-) -> JoinHandle<()> {
-    thread::spawn(move || {
-        for url in r.iter() {
-            {
-                let visited = visited_t.lock().unwrap();
-
-                println!("{}", url);
-
-                // If number of visited URLs exceeds limit, stop fetching them.
-                if visited.len() >= MAX_URLS {
-                    break;
-                }
-
-                if visited.contains(&url) {
-                    continue;
-                }
-            }
-
-            // Fetch new links from the page at URL
-            let new_links = fetch_links(&url).unwrap();
-            for link in new_links {
-                s.send(link).unwrap();
-            }
-
-            let mut visited = visited_t.lock().unwrap();
-            (*visited).insert(url);
-        }
-    })
-}
+const MAX_DEPTH: usize = 3; // Could be entered by user
 
 /// Takes a relative URL and returns a full, absolute URL from it
 ///
@@ -99,11 +60,59 @@ pub fn fetch_links(base: &str) -> reqwest::Result<Vec<String>> {
                 }
             }
         };
-
+        
+        // Check scheme of URL 
+        let parsed = Url::parse(full_url.as_str()).unwrap();
+        if !["http", "https"].contains(&parsed.scheme()) {
+            continue;
+        }
+        
         urls.push(full_url);
     }
 
     Ok(urls)
+}
+
+/// Creates a thread to explore a webpage for its urls
+///
+/// s: the sender that handles sending data into the channel
+/// r: the receiver that handles receiving data from the channel
+/// visited_t: the thread-safe shared reference for a HashSet which keeps
+///     track of all visited URLs.
+pub fn spawn_thread(
+    s: Sender<(String, usize)>,
+    r: Receiver<(String, usize)>,
+    visited_t: Arc<Mutex<HashSet<String>>>,
+) -> JoinHandle<()> {
+    thread::spawn(move || {
+        for (url, depth) in r.iter() {
+            // Do not exceed max depth for a given URL
+            if depth > MAX_DEPTH {
+                continue;
+            }
+
+            {
+                let mut visited = visited_t.lock().unwrap();
+
+                println!("{}", url);
+
+                // If number of visited URLs exceeds limit, stop fetching them.
+                if visited.len() >= MAX_URLS {
+                    break;
+                }
+
+                if !visited.insert(url.clone()) {
+                    continue;
+                }
+            }
+
+            // Fetch new links from the page at URL
+            let new_links = fetch_links(&url).unwrap();
+            for link in new_links {
+                s.send((link, depth + 1)).unwrap();
+            }
+        }
+    })
 }
 
 #[cfg(test)]
@@ -245,6 +254,7 @@ mod tests {
                     <h1 class="foo">Hello, <i>world!</i></h1>
                     <a href="https://www.w3schools.com/">Visit W3Schools.com!</a>
                     <a href="https://google.com">Google</a>
+                    <a href="mailto:someone@example.com">Email Here</a>
                     <div>
                         <a href="https://neetcode.com">Neetcode</a>
                     </div>
